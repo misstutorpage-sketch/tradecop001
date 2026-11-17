@@ -11,11 +11,13 @@ public sealed class PolicyEnforcingBroker : BrokerAdapterBase
 {
     private readonly IBrokerAdapter _inner;
     private readonly PolicyGuard _policy;
+    private readonly NewsBlackoutGuard? _news;
 
-    public PolicyEnforcingBroker(IBrokerAdapter inner, PolicyGuard policy)
+    public PolicyEnforcingBroker(IBrokerAdapter inner, PolicyGuard policy, NewsBlackoutGuard? news = null)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
+        _news = news;
         _inner.OrderUpdated += (_, result) => RaiseOrderUpdated(result);
     }
 
@@ -39,6 +41,9 @@ public sealed class PolicyEnforcingBroker : BrokerAdapterBase
     public override async Task<OrderResult> PlaceOrderAsync(OrderRequest request, CancellationToken ct = default)
     {
         _policy.EnsureOrderAllowed(request.Symbol.Value, request.Quantity);
+
+        if (_news is not null)
+            await _news.EnsureTradingAllowedAsync(ct).ConfigureAwait(false);
 
         var account = await _inner.GetAccountAsync(ct).ConfigureAwait(false);
         _policy.CheckEquity(account.Equity);

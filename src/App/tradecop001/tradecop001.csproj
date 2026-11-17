@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\Brokers\TradingBrokers.IB\TradingBrokers.IB.csproj" />
     <ProjectReference Include="..\..\Brokers\TradingBrokers.MT5\TradingBrokers.MT5.csproj" />
     <ProjectReference Include="..\..\Strategies\Strategies.MovingAverage\Strategies.MovingAverage.csproj" />
+    <ProjectReference Include="..\..\Strategies\Strategies.Adaptive\Strategies.Adaptive.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />

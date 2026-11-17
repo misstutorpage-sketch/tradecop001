@@ -65,7 +65,9 @@ public interface IStrategy
     /// <summary>Called once historical replay finishes; enable live trading here.</summary>
     void OnWarmupComplete(IStrategyContext context) { }
 
-    void OnBar(Bar bar, IStrategyContext context);
+    /// <summary>Called for each bar. Async so strategies can place orders without blocking a thread.</summary>
+    Task OnBarAsync(Bar bar, IStrategyContext context, CancellationToken ct = default);
+
     void OnTick(Tick tick, IStrategyContext context) { }
     void OnStopped(IStrategyContext context) { }
 }

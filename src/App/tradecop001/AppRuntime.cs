@@ -1,6 +1,7 @@
 using Strategies.MovingAverage;
 using TradeCop001.Licensing;
 using TradingCore.Abstractions;
+using TradingCore.Adapters;
 using TradingCore.Configuration;
 using TradingCore.Engine;
 
@@ -21,20 +22,49 @@ public sealed class AppRuntime
     private CancellationTokenSource? _cts;
     private Task? _runTask;
     private SmaCrossoverOptions _options;
+    private readonly IStrategy? _strategyOverride;
+    private readonly IReadOnlyDictionary<string, string>? _symbolMap;
+    private readonly NewsBlackoutGuard? _news;
 
     public AppRuntime(
         BrokerResolver resolver,
         BrokerConfig brokerConfig,
         SmaCrossoverOptions options,
         PolicyGuard policy,
-        Action<string> log)
+        Action<string> log,
+        IReadOnlyDictionary<string, string>? symbolMap = null,
+        NewsBlackoutGuard? news = null)
     {
         _resolver = resolver;
         _brokerConfig = brokerConfig;
         _options = options;
         _policy = policy;
         _log = log;
+        _symbolMap = symbolMap;
+        _news = news;
     }
+
+    /// <summary>Use a pre-built strategy (e.g. the adaptive engine) instead of the default SMA.</summary>
+    public AppRuntime(
+        BrokerResolver resolver,
+        BrokerConfig brokerConfig,
+        IStrategy strategy,
+        PolicyGuard policy,
+        Action<string> log,
+        IReadOnlyDictionary<string, string>? symbolMap = null,
+        NewsBlackoutGuard? news = null)
+    {
+        _resolver = resolver;
+        _brokerConfig = brokerConfig;
+        _strategyOverride = strategy;
+        _options = new SmaCrossoverOptions();
+        _policy = policy;
+        _log = log;
+        _symbolMap = symbolMap;
+        _news = news;
+    }
+
+    public IStrategy? Strategy => _strategyOverride;
 
     public string State { get; private set; } = "Stopped";
     public string? LastError { get; private set; }
@@ -120,8 +150,16 @@ public sealed class AppRuntime
         try
         {
             var rawBroker = _resolver.Resolve(_brokerConfig);
-            var broker = new PolicyEnforcingBroker(rawBroker, _policy);
-            var strategy = new SmaCrossoverStrategy(GetOptions());
+
+            IBrokerAdapter broker = rawBroker;
+            if (_symbolMap is { Count: > 0 })
+            {
+                broker = new MappedBrokerAdapter(broker, _symbolMap);
+                _log($"Symbol mapping active ({_symbolMap.Count} venue symbols).");
+            }
+            broker = new PolicyEnforcingBroker(broker, _policy, _news);
+
+            var strategy = _strategyOverride ?? new SmaCrossoverStrategy(GetOptions());
             IStrategyContext context = new StrategyContext(broker, _log);
             var engine = new TradingEngine(broker, strategy, context);
 

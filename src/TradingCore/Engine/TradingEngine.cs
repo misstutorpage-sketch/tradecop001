@@ -39,11 +39,16 @@ public sealed class TradingEngine
             .Select(symbol => PumpAsync(symbol, channel.Writer, linkedCts.Token))
             .ToArray();
 
+        // When every market-data stream ends on its own (broker disconnect, finite
+        // replay, test feed), close the channel so the reader loop can finish.
+        // Without this the engine waits forever even though there is no more data.
+        _ = CompleteWhenPumpsFinishAsync(pumps, channel.Writer);
+
         try
         {
             await foreach (var bar in channel.Reader.ReadAllAsync(linkedCts.Token).ConfigureAwait(false))
             {
-                _strategy.OnBar(bar, _context);
+                await _strategy.OnBarAsync(bar, _context, linkedCts.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -68,6 +73,22 @@ public sealed class TradingEngine
             await _broker.DisconnectAsync(CancellationToken.None).ConfigureAwait(false);
             await _broker.DisposeAsync().ConfigureAwait(false);
             _context.Log("Engine stopped cleanly.");
+        }
+    }
+
+    private static async Task CompleteWhenPumpsFinishAsync(Task[] pumps, ChannelWriter<Bar> writer)
+    {
+        try
+        {
+            await Task.WhenAll(pumps).ConfigureAwait(false);
+        }
+        catch
+        {
+            // PumpAsync already logs its own errors; just close the channel.
+        }
+        finally
+        {
+            writer.TryComplete();
         }
     }
 

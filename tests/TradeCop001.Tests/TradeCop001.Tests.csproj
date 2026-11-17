@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TradingCore\TradingCore.csproj" />
+    <ProjectReference Include="..\..\src\TradeCop001.Licensing\TradeCop001.Licensing.csproj" />
+    <ProjectReference Include="..\..\src\Brokers\TradingBrokers.Paper\TradingBrokers.Paper.csproj" />
+    <ProjectReference Include="..\..\src\Brokers\TradingBrokers.Crypto\TradingBrokers.Crypto.csproj" />
+    <ProjectReference Include="..\..\src\Brokers\TradingBrokers.IB\TradingBrokers.IB.csproj" />
+    <ProjectReference Include="..\..\src\Brokers\TradingBrokers.MT5\TradingBrokers.MT5.csproj" />
+    <ProjectReference Include="..\..\src\Strategies\Strategies.MovingAverage\Strategies.MovingAverage.csproj" />
+    <ProjectReference Include="..\..\src\Strategies\Strategies.Adaptive\Strategies.Adaptive.csproj" />
+    <ProjectReference Include="..\..\src\App\tradecop001\tradecop001.csproj" />
+  </ItemGroup>
+
+</Project>

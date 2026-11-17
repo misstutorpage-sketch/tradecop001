@@ -47,7 +47,7 @@ public sealed class SmaCrossoverStrategy : IStrategy
         context.Log("Warmup complete — live signals enabled.");
     }
 
-    public void OnBar(Bar bar, IStrategyContext context)
+    public async Task OnBarAsync(Bar bar, IStrategyContext context, CancellationToken ct = default)
     {
         _closes.Enqueue(bar.Close);
         while (_closes.Count > _options.SlowPeriod + 1)
@@ -65,15 +65,15 @@ public sealed class SmaCrossoverStrategy : IStrategy
         {
             if (_previousSpread.Value <= 0m && spread > 0m && !_isLong)
             {
-                var result = context.MarketOrderAsync(bar.Symbol, OrderSide.Buy, _options.Quantity, "SMA golden cross")
-                    .GetAwaiter().GetResult();
+                var result = await context.MarketOrderAsync(
+                    bar.Symbol, OrderSide.Buy, _options.Quantity, "SMA golden cross", ct).ConfigureAwait(false);
                 _isLong = result.Status is OrderStatus.Filled or OrderStatus.Submitted or OrderStatus.New;
                 context.Log($"BUY {_options.Quantity} {bar.Symbol} @ {bar.Close} -> {result.BrokerOrderId}");
             }
             else if (_previousSpread.Value >= 0m && spread < 0m && _isLong)
             {
-                var result = context.MarketOrderAsync(bar.Symbol, OrderSide.Sell, _options.Quantity, "SMA death cross")
-                    .GetAwaiter().GetResult();
+                var result = await context.MarketOrderAsync(
+                    bar.Symbol, OrderSide.Sell, _options.Quantity, "SMA death cross", ct).ConfigureAwait(false);
                 _isLong = false;
                 context.Log($"SELL {_options.Quantity} {bar.Symbol} @ {bar.Close} -> {result.BrokerOrderId}");
             }

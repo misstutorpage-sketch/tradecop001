@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>IbBridge</RootNamespace>
+    <AssemblyName>IbBridge</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Official Interactive Brokers C# API. The NuGet package id is IBApi;
+         the assembly inside it is CSharpAPI.dll (netstandard2.0), which is
+         consumable by net10.0. See README.md for a local IBApi.dll fallback. -->
+    <PackageReference Include="IBApi" Version="1.0.0-preview-975" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
