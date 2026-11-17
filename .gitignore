@@ -1,0 +1,18 @@
+# NEVER commit signing keys, licenses, or policies
+_licensetest/
+tradecop001-private-key.txt
+*private-key*.txt
+license.json
+policy.json
+
+# Build output and published binaries
+**/bin/
+**/obj/
+publish/
+
+# IDE / OS junk
+.vs/
+.vscode/
+*.user
+Thumbs.db
+desktop.ini

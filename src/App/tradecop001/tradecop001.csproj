@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>tradecop001</AssemblyName>
+    <RootNamespace>TradeCop001</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\TradingCore\TradingCore.csproj" />
+    <ProjectReference Include="..\..\TradeCop001.Licensing\TradeCop001.Licensing.csproj" />
+    <ProjectReference Include="..\..\Brokers\TradingBrokers.Paper\TradingBrokers.Paper.csproj" />
+    <ProjectReference Include="..\..\Brokers\TradingBrokers.Crypto\TradingBrokers.Crypto.csproj" />
+    <ProjectReference Include="..\..\Brokers\TradingBrokers.IB\TradingBrokers.IB.csproj" />
+    <ProjectReference Include="..\..\Brokers\TradingBrokers.MT5\TradingBrokers.MT5.csproj" />
+    <ProjectReference Include="..\..\Strategies\Strategies.MovingAverage\Strategies.MovingAverage.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>tradecop001.LicenseTool</AssemblyName>
+    <RootNamespace>TradeCop001.LicenseTool</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\TradeCop001.Licensing\TradeCop001.Licensing.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\TradingCore\TradingCore.csproj" />
+  </ItemGroup>
+</Project>

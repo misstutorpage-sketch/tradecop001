@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\TradingCore\TradingCore.csproj" />
+    <ProjectReference Include="..\TradingBrokers.Bridge\TradingBrokers.Bridge.csproj" />
+  </ItemGroup>
+</Project>
