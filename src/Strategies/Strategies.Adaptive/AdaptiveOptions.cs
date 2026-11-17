@@ -111,7 +111,10 @@ public static class AdaptivePresets
 
     public static AdaptiveOptions WithMode(AdaptiveOptions current, TradingMode mode)
     {
-        var next = For(mode, current.Risk, current.Symbol, current.BaseQuantity);
+        // current.BaseQuantity is already risk-adjusted. Recover the raw size
+        // first, otherwise every mode switch would shrink (or grow) the order.
+        var baseQuantity = current.BaseQuantity / QuantityMultiplier(current.Risk);
+        var next = For(mode, current.Risk, current.Symbol, baseQuantity);
         next.Interval = current.Interval;
         next.EnableShorting = current.EnableShorting;
         next.AiEnabled = current.AiEnabled;
@@ -120,12 +123,20 @@ public static class AdaptivePresets
 
     public static AdaptiveOptions WithRisk(AdaptiveOptions current, RiskProfile risk)
     {
-        var next = For(current.Mode, risk, current.Symbol, current.BaseQuantity);
+        var baseQuantity = current.BaseQuantity / QuantityMultiplier(current.Risk);
+        var next = For(current.Mode, risk, current.Symbol, baseQuantity);
         next.Interval = current.Interval;
         next.EnableShorting = current.EnableShorting;
         next.AiEnabled = current.AiEnabled;
         return next;
     }
+
+    private static decimal QuantityMultiplier(RiskProfile risk) => risk switch
+    {
+        RiskProfile.Conservative => 0.5m,
+        RiskProfile.Aggressive => 2m,
+        _ => 1m
+    };
 
     private static void ApplyRisk(AdaptiveOptions options, RiskProfile risk)
     {

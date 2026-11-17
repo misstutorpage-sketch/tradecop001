@@ -94,6 +94,35 @@ public class AdaptiveStrategyTests
     }
 
     [Fact]
+    public void SwitchingMode_DoesNotShrinkQuantity()
+    {
+        var current = AdaptivePresets.For(TradingMode.Balanced, RiskProfile.Conservative, "BTCUSDT", 0.02m);
+        var expected = current.BaseQuantity;
+
+        var trend = AdaptivePresets.WithMode(current, TradingMode.Trend);
+        var range = AdaptivePresets.WithMode(trend, TradingMode.Range);
+        var scalp = AdaptivePresets.WithMode(range, TradingMode.Scalp);
+
+        Assert.Equal(expected, trend.BaseQuantity);
+        Assert.Equal(expected, range.BaseQuantity);
+        Assert.Equal(expected, scalp.BaseQuantity);
+    }
+
+    [Fact]
+    public void SwitchingRisk_AppliesMultiplierExactlyOnce()
+    {
+        var conservative = AdaptivePresets.For(TradingMode.Balanced, RiskProfile.Conservative, "BTCUSDT", 0.02m);
+        var balanced = AdaptivePresets.WithRisk(conservative, RiskProfile.Balanced);
+        var aggressive = AdaptivePresets.WithRisk(balanced, RiskProfile.Aggressive);
+        var backToConservative = AdaptivePresets.WithRisk(aggressive, RiskProfile.Conservative);
+
+        Assert.Equal(0.01m, conservative.BaseQuantity);
+        Assert.Equal(0.02m, balanced.BaseQuantity);
+        Assert.Equal(0.04m, aggressive.BaseQuantity);
+        Assert.Equal(0.01m, backToConservative.BaseQuantity);
+    }
+
+    [Fact]
     public void RegimeDetection_DistinguishesTrendAndRange()
     {
         var options = FastOptions();
@@ -264,6 +293,39 @@ public class AdaptiveStrategyTests
 
         Assert.True(ai.Calls > 0);
         Assert.Contains("Stub AI", strategy.GetStatus().AiProvider);
+    }
+
+    [Fact]
+    public async Task Strategy_RaisesTradeCompletedWithContextOnClose()
+    {
+        var options = FastOptions();
+        options.TakeProfitPercent = 50m;
+        options.TrailingStopPercent = 50m;
+        options.CooldownBars = 3;
+        var strategy = new AdaptiveStrategy(options);
+        var context = new TestContext();
+        TradeRecord? recorded = null;
+        strategy.TradeCompleted += (_, trade) => recorded = trade;
+        strategy.OnStarted(context);
+        strategy.OnWarmupComplete(context);
+
+        foreach (var bar in Trend(25, 170m, 1m))
+        {
+            var close = bar.Close;
+            context.Fill = (_, _) => new OrderResult("FILL", null, OrderStatus.Filled, options.BaseQuantity, close);
+            await strategy.OnBarAsync(bar, context);
+        }
+
+        context.Fill = (_, _) => new OrderResult("FILL", null, OrderStatus.Filled, options.BaseQuantity, 170m);
+        await strategy.OnBarAsync(MakeBar(170m, 100, 5m), context);
+
+        Assert.NotNull(recorded);
+        Assert.Equal("BTCUSDT", recorded!.Symbol);
+        Assert.Equal("Buy", recorded.Direction);
+        Assert.NotEmpty(recorded.EntryContext);
+        Assert.NotEmpty(recorded.ExitContext);
+        Assert.Contains("stop loss", recorded.ExitReason, StringComparison.OrdinalIgnoreCase);
+        Assert.True(recorded.PnlPercent < 0m);
     }
 
     [Fact]

@@ -27,6 +27,12 @@ need access.
 You can read `policy.json` and `license.json` — they are signed JSON documents, not
 encrypted secrets.
 
+Closed trades are saved to a local `trades.jsonl` beside the executable so you can
+review how the strategy behaved. `GET /learning` shows win rate, profit factor and
+suggestions from your own trades. Nothing is uploaded and no settings are changed
+automatically. Set `Learning:Enabled=false` in `appsettings.json` to disable it.
+See `LEARNING.md` in this package.
+
 ## Control API (optional)
 
 From that machine:
@@ -42,4 +48,11 @@ Ask the issuer for the token. Use `/pause` to stop new orders immediately.
 ## Safety
 
 Automated trading can lose money. Start with the paper broker and small size. You are
-responsible for your own broker credentials and risk controls.
+responsible for your own broker credentials and risk controls. No maximum profit is
+guaranteed; the practical goal is loss minimisation.
+
+This tool does not use MT5's AI Assistant or any external MCP/AI provider and never
+sends market, account, history, code or log data to third parties. Those separate
+features have their own data terms; only review data you explicitly export. Any
+AI-generated output is advisory — verify it yourself. This is not financial,
+investment, trading, legal, tax or cybersecurity advice.

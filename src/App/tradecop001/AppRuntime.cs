@@ -4,6 +4,7 @@ using TradingCore.Abstractions;
 using TradingCore.Adapters;
 using TradingCore.Configuration;
 using TradingCore.Engine;
+using TradingCore.Models;
 
 namespace TradeCop001;
 
@@ -25,6 +26,9 @@ public sealed class AppRuntime
     private readonly IStrategy? _strategyOverride;
     private readonly IReadOnlyDictionary<string, string>? _symbolMap;
     private readonly NewsBlackoutGuard? _news;
+    private readonly SessionJournal _journal = new();
+
+    private IBrokerAdapter? _activeBroker;
 
     public AppRuntime(
         BrokerResolver resolver,
@@ -65,6 +69,38 @@ public sealed class AppRuntime
     }
 
     public IStrategy? Strategy => _strategyOverride;
+
+    /// <summary>Order history for the daily progress report (canonical symbols).</summary>
+    public SessionJournal Journal => _journal;
+
+    public string? ActiveBrokerName
+    {
+        get { lock (_sync) return _activeBroker?.Name; }
+    }
+
+    /// <summary>Best-effort venue account snapshot; never throws into the control API.</summary>
+    public async Task<AccountInfo?> TryGetAccountAsync(CancellationToken ct = default)
+    {
+        IBrokerAdapter? broker;
+        lock (_sync) broker = _activeBroker;
+        if (broker is null)
+            return null;
+
+        try { return await broker.GetAccountAsync(ct).ConfigureAwait(false); }
+        catch { return null; }
+    }
+
+    /// <summary>Best-effort open positions; returns an empty list if the venue is unavailable.</summary>
+    public async Task<IReadOnlyList<Position>> TryGetPositionsAsync(CancellationToken ct = default)
+    {
+        IBrokerAdapter? broker;
+        lock (_sync) broker = _activeBroker;
+        if (broker is null)
+            return Array.Empty<Position>();
+
+        try { return await broker.GetPositionsAsync(ct).ConfigureAwait(false); }
+        catch { return Array.Empty<Position>(); }
+    }
 
     public string State { get; private set; } = "Stopped";
     public string? LastError { get; private set; }
@@ -158,6 +194,10 @@ public sealed class AppRuntime
                 _log($"Symbol mapping active ({_symbolMap.Count} venue symbols).");
             }
             broker = new PolicyEnforcingBroker(broker, _policy, _news);
+            broker = new JournalingBrokerAdapter(broker, _journal);
+
+            lock (_sync)
+                _activeBroker = broker;
 
             var strategy = _strategyOverride ?? new SmaCrossoverStrategy(GetOptions());
             IStrategyContext context = new StrategyContext(broker, _log);
@@ -176,7 +216,11 @@ public sealed class AppRuntime
         }
         finally
         {
-            State = "Stopped";
+            lock (_sync)
+            {
+                _activeBroker = null;
+                State = "Stopped";
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-# Bridge setup (IB paper / MT5 demo)
+# Bridge setup (IB paper / MT5 demo: Deriv, Exness, HFM)
 
 The app's `ib` and `mt5` broker adapters do not talk to brokers directly. They
 connect to a small native-side JSON-RPC bridge over loopback TCP. Set up the
@@ -126,6 +126,51 @@ broker type, MT5 server and canonical-to-venue symbol map in one step.
 }
 ```
 
+### HFM (HF Markets) MT5 demo
+
+Log in to the HFM MT5 terminal with a **demo** account. The common demo servers
+are `HFMarketsGlobal-Demo`, `HFMarketsGlobal-Demo3` and
+`HFMarketsGlobal-Demo4`; the profile defaults to the first. Server names can
+differ by entity, so use the name shown in the terminal login dialog if yours
+does not match.
+
+```json
+"Broker": {
+  "Name": "hfm-demo",
+  "Type": "paper",
+  "Profile": "hfm-demo",
+  "Settings": {
+    "BridgeHost": "127.0.0.1",
+    "BridgePort": "5052"
+  }
+}
+```
+
+The built-in map targets the **Premium** account, which uses no suffix:
+`EURUSD`, `GBPUSD`, `USDJPY`, `AUDUSD`, `USDCAD`, `USDCHF`, `NZDUSD`,
+`EURGBP`, `EURJPY`, `GBPJPY`, `XAUUSD`, `XAGUSD`, `#BTCUSD`, `#ETHUSD`,
+`USA30`, `USA100`, `USA500`, `GER40`, `UK100`, `JPN225`.
+
+For Pro, Zero, Cent, KATANA/InfinityX or Premium Pro accounts, add the account
+suffix or copy exact names from MT5 **Market Watch**:
+
+```json
+"Settings": {
+  "SymbolSuffix": "r",
+  "SymbolMap": "BTCUSDT=#BTCUSDr;XAUUSD=XAUUSDr;EURUSD=EURUSDr"
+}
+```
+
+Suffix reference: Premium none, Pro `r`, Zero `b` (crypto often `#BTCUSDr`),
+Cent `c`, KATANA/InfinityX `x`, Premium Pro `.V`. Explicit `SymbolMap` entries
+always win over the suffix. Start the app and confirm the log shows the expected
+count and examples, e.g. `Symbol map: 20 canonical symbols (...)`.
+
+To trade gold or BTC instead of the default `BTCUSDT`, change
+`Strategy:Symbol` (and `Strategy:Adaptive:Symbol`) to the **canonical** name,
+for example `XAUUSD`, `EURUSD` or `BTCUSDT`. Keep the signed policy's allowed
+symbol in sync — it is checked before venue mapping.
+
 `Type` is shown as `paper` because the profile overrides it (`ib`/`mt5`) at
 startup. Explicit settings you write are never overwritten by the profile.
 `BridgeHost` defaults to `127.0.0.1` and `BridgePort` defaults to the adapter's
@@ -134,8 +179,8 @@ the configuration explicit. Keep host as `127.0.0.1` — the bridges refuse
 non-loopback binds and the strategies assume local-only traffic.
 
 The strategy keeps trading canonical symbols such as `BTCUSDT`; the app maps
-them to the venue name (`BTC-USD` on IB, `BTCUSD` on Deriv/Exness) on the wire
-and maps bars/ticks back. Verify the mapping in the startup log:
+them to the venue name (`BTC-USD` on IB, `BTCUSD` on Deriv/Exness, `#BTCUSD` on
+HFM) on the wire and maps bars/ticks back. Verify the mapping in the startup log:
 `Symbol mapping active (N venue symbols).`
 
 After changing `appsettings.json`, restart the app. It will connect to the

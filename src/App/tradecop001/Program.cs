@@ -13,6 +13,7 @@ using TradingBrokers.MT5;
 using TradingBrokers.Paper;
 using TradingCore.Abstractions;
 using TradingCore.Configuration;
+using TradingCore.Engine;
 
 if (args.Length > 0 && args[0].Equals("--fingerprint", StringComparison.OrdinalIgnoreCase))
 {
@@ -69,6 +70,28 @@ try
     if (profile is not null)
         Log($"Broker profile: {profile.DisplayName} ({profile.Key}) -> type={brokerConfig.Type}");
 
+    // Profile defaults, optional account-type suffix, then explicit overrides.
+    var symbolMap = BrokerProfileCatalog.ResolveSymbols(profile, brokerConfig);
+    if (symbolMap.Count > 0)
+    {
+        var examples = string.Join(", ", symbolMap.Take(4).Select(p => $"{p.Key}->{p.Value}"));
+        Log($"Symbol map: {symbolMap.Count} canonical symbols ({examples}{(symbolMap.Count > 4 ? ", ..." : "")})");
+    }
+
+    decimal ApplyVenueMinimum(string symbol, decimal quantity)
+    {
+        var minimum = BrokerProfileCatalog.MinVolume(profile, symbol);
+        return minimum is > 0m && quantity < minimum ? minimum.Value : quantity;
+    }
+
+    // Closed trades are kept locally so the morphic engine can be reviewed and
+    // tuned from real fills. No network calls; JSONL beside the executable.
+    var learningEnabled = !string.Equals(
+        configuration["Learning:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+    var ledgerPath = ResolvePath(configuration["Learning:LedgerPath"] ?? "trades.jsonl", baseDir);
+    var ledger = new TradeLedger(ledgerPath, learningEnabled);
+    Log($"Learning ledger: {(learningEnabled ? ledgerPath : "disabled")} ({ledger.Count} stored trades)");
+
     // Research is opt-in. The shipped provider is offline: no network calls, no keys.
     INewsProvider newsProvider = new NullNewsProvider();
     var news = new NewsBlackoutGuard(
@@ -106,16 +129,40 @@ try
         var bound = adaptiveSection.Get<AdaptiveOptions>() ?? new AdaptiveOptions();
         var preset = AdaptivePresets.For(bound.Mode, bound.Risk, bound.Symbol, bound.BaseQuantity);
         OverrideExplicitlySet(adaptiveSection, preset, bound);
+
+        // Conservative halves the configured size; that can fall below an MT5
+        // venue minimum (0.01 lots). Raise to the known minimum before the
+        // policy check so the first demo order is accepted.
+        var minVolume = BrokerProfileCatalog.MinVolume(profile, preset.Symbol);
+        if (minVolume is > 0m && preset.BaseQuantity < minVolume)
+        {
+            Log($"Quantity {preset.BaseQuantity} is below the venue minimum; using {minVolume} for {preset.Symbol}.");
+            preset.BaseQuantity = minVolume.Value;
+        }
+
         AdaptivePresets.Validate(preset);
         policyGuard.EnsureOrderAllowed(preset.Symbol, preset.BaseQuantity);
 
         adaptiveStrategy = new AdaptiveStrategy(preset);
-        runtime = new AppRuntime(resolver, brokerConfig, adaptiveStrategy, policyGuard, Log, profile?.Symbols, news);
+        // Learning is best-effort: a ledger write must never stop trading.
+        adaptiveStrategy.TradeCompleted += (_, trade) =>
+        {
+            try { ledger.Append(trade); }
+            catch (Exception ex) { Log($"Learning record failed: {ex.Message}"); }
+        };
+        runtime = new AppRuntime(resolver, brokerConfig, adaptiveStrategy, policyGuard, Log, symbolMap, news);
         Log($"Strategy: adaptive (mode={preset.Mode}, risk={preset.Risk})");
     }
     else
     {
-        runtime = new AppRuntime(resolver, brokerConfig, strategyOptions, policyGuard, Log, profile?.Symbols, news);
+        var minVolume = BrokerProfileCatalog.MinVolume(profile, strategyOptions.Symbol);
+        if (minVolume is > 0m && strategyOptions.Quantity < minVolume)
+        {
+            Log($"Quantity {strategyOptions.Quantity} is below the venue minimum; using {minVolume} for {strategyOptions.Symbol}.");
+            strategyOptions.Quantity = minVolume.Value;
+        }
+
+        runtime = new AppRuntime(resolver, brokerConfig, strategyOptions, policyGuard, Log, symbolMap, news);
         Log("Strategy: SMA crossover");
     }
 
@@ -170,6 +217,8 @@ try
                 policy = policy.PolicyId,
                 license = license.LicenseId,
                 brokerProfile = profile?.Key ?? brokerConfig.Name,
+                broker = runtime.ActiveBrokerName,
+                venueSymbols = symbolMap.Count,
                 research = newsProvider.Name,
                 newsBlackout = news.Enabled,
                 paused = policyGuard.IsPaused,
@@ -244,6 +293,7 @@ try
             try
             {
                 var next = AdaptivePresets.WithMode(adaptiveStrategy.GetOptions(), mode);
+                next.BaseQuantity = ApplyVenueMinimum(next.Symbol, next.BaseQuantity);
                 policyGuard.EnsureOrderAllowed(next.Symbol, next.BaseQuantity);
                 adaptiveStrategy.UpdateOptions(next);
                 return Results.Ok(adaptiveStrategy.GetStatus());
@@ -264,6 +314,7 @@ try
             try
             {
                 var next = AdaptivePresets.WithRisk(adaptiveStrategy.GetOptions(), risk);
+                next.BaseQuantity = ApplyVenueMinimum(next.Symbol, next.BaseQuantity);
                 policyGuard.EnsureOrderAllowed(next.Symbol, next.BaseQuantity);
                 adaptiveStrategy.UpdateOptions(next);
                 return Results.Ok(adaptiveStrategy.GetStatus());
@@ -282,6 +333,7 @@ try
             if (options is null) return Results.BadRequest("Missing options.");
             try
             {
+                options.BaseQuantity = ApplyVenueMinimum(options.Symbol, options.BaseQuantity);
                 AdaptivePresets.Validate(options);
                 policyGuard.EnsureOrderAllowed(options.Symbol, options.BaseQuantity);
                 adaptiveStrategy.UpdateOptions(options);
@@ -291,6 +343,71 @@ try
             {
                 return Results.BadRequest(ex.Message);
             }
+        });
+
+        // Local, read-only daily summary for progress updates. Uses the session
+        // journal plus a best-effort venue account/positions snapshot.
+        app.MapGet("/daily", async (HttpContext ctx) =>
+        {
+            if (!Authorized(ctx)) return Results.Unauthorized();
+
+            var now = DateTimeOffset.Now;
+            var tradingDayStart = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
+            var orders = runtime.Journal.Since(tradingDayStart);
+            var account = await runtime.TryGetAccountAsync(ctx.RequestAborted);
+            var positions = await runtime.TryGetPositionsAsync(ctx.RequestAborted);
+
+            var report = DailyReportBuilder.Build(
+                now,
+                profile?.Key ?? brokerConfig.Name,
+                runtime.ActiveBrokerName,
+                adaptiveStrategy is null ? "SMA crossover" : "adaptive morphic",
+                runtime.State,
+                runtime.StartedAt,
+                runtime.LastError,
+                policy.PolicyId,
+                license.LicenseId,
+                newsProvider.Name,
+                news.Enabled,
+                account,
+                positions,
+                orders);
+
+            return Results.Ok(new
+            {
+                report,
+                adaptive = adaptiveStrategy?.GetStatus()
+            });
+        });
+
+        // Local-only learning view. Summarises real closed trades from this device
+        // and returns recent trades without their bulky context bars. Nothing is
+        // uploaded and no parameters are auto-tuned from this data.
+        app.MapGet("/learning", (HttpContext ctx) =>
+        {
+            if (!Authorized(ctx)) return Results.Unauthorized();
+            var summary = ledger.Summarize();
+            var recent = ledger.Recent(10).Select(t => new
+            {
+                t.Symbol,
+                t.Direction,
+                t.EntryTime,
+                t.ExitTime,
+                t.EntryPrice,
+                t.ExitPrice,
+                t.Quantity,
+                t.PnlPercent,
+                t.ExitReason,
+                t.EntryMode,
+                t.EntryRisk,
+                t.ExitMode,
+                t.ExitRisk,
+                t.Regime,
+                t.SignalStrength,
+                t.SignalReason,
+                contextBars = t.EntryContext.Count + t.ExitContext.Count
+            }).ToArray();
+            return Results.Ok(new { summary, recent });
         });
 
         // Read-only view of opt-in research. With the default provider this simply

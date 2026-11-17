@@ -35,6 +35,19 @@ public sealed class AdaptiveStrategy : IStrategy
     private bool _live;
     private AggregatedSignal _lastSignal = AggregatedSignal.Flat(MarketRegime.Ranging, Array.Empty<Signal>());
     private string _lastAction = "none";
+    private EntryContext? _entry;
+
+    private sealed record EntryContext(
+        DateTimeOffset Time,
+        decimal Price,
+        decimal Quantity,
+        SignalDirection Direction,
+        AdaptiveOptions Options,
+        AggregatedSignal Signal,
+        IReadOnlyList<Bar> Context);
+
+    /// <summary>Raised after a position is closed. A local ledger may persist it.</summary>
+    public event EventHandler<TradeRecord>? TradeCompleted;
 
     public AdaptiveStrategy(AdaptiveOptions options, IAiSignalProvider? aiProvider = null)
     {
@@ -108,7 +121,16 @@ public sealed class AdaptiveStrategy : IStrategy
                     $"{options.Mode}/{options.Risk}: {action.Reason}", ct).ConfigureAwait(false);
                 if (result is not null)
                 {
-                    _positions.ApplyOpen(signal.Direction, options.BaseQuantity, result.AverageFillPrice, _bars.Count - 1);
+                    var filled = result.FilledQuantity > 0m ? result.FilledQuantity : options.BaseQuantity;
+                    _positions.ApplyOpen(signal.Direction, filled, result.AverageFillPrice, _bars.Count - 1);
+                    _entry = new EntryContext(
+                        bar.OpenTime,
+                        result.AverageFillPrice,
+                        filled,
+                        signal.Direction,
+                        options,
+                        signal,
+                        SnapshotContext());
                     _lastAction = $"{action.Kind} @ {result.AverageFillPrice:F5}";
                 }
                 break;
@@ -122,8 +144,16 @@ public sealed class AdaptiveStrategy : IStrategy
                         $"{options.Mode}/{options.Risk}: {action.Reason}", ct).ConfigureAwait(false);
                     if (closeResult is not null)
                     {
+                        var entry = _entry;
+                        var exitPrice = closeResult.AverageFillPrice > 0m
+                            ? closeResult.AverageFillPrice
+                            : bar.Close;
                         _positions.ApplyClose(options.CooldownBars);
+                        _entry = null;
                         _lastAction = $"Close ({action.Reason})";
+
+                        if (entry is not null)
+                            RecordCompletedTrade(context, bar, options, entry, exitPrice, action.Reason);
                     }
                 }
                 break;
@@ -181,6 +211,7 @@ public sealed class AdaptiveStrategy : IStrategy
             _live = false;
             _lastSignal = AggregatedSignal.Flat(MarketRegime.Ranging, Array.Empty<Signal>());
             _lastAction = "none";
+            _entry = null;
         }
         _positions.Reset();
     }
@@ -227,5 +258,58 @@ public sealed class AdaptiveStrategy : IStrategy
         var direction = net > 0m ? SignalDirection.Buy : net < 0m ? SignalDirection.Sell : SignalDirection.Flat;
         var signals = local.Signals.Append(ai).ToArray();
         return new AggregatedSignal(direction, Math.Abs(net), local.Regime, signals);
+    }
+
+    private void RecordCompletedTrade(
+        IStrategyContext context,
+        Bar exitBar,
+        AdaptiveOptions exitOptions,
+        EntryContext entry,
+        decimal exitPrice,
+        string exitReason)
+    {
+        if (entry.Price <= 0m || exitPrice <= 0m)
+            return;
+
+        var pnlPercent = entry.Direction == SignalDirection.Buy
+            ? (exitPrice - entry.Price) / entry.Price * 100m
+            : (entry.Price - exitPrice) / entry.Price * 100m;
+
+        var record = new TradeRecord(
+            exitBar.Symbol.Value,
+            entry.Direction.ToString(),
+            entry.Time,
+            exitBar.OpenTime,
+            entry.Price,
+            exitPrice,
+            entry.Quantity,
+            pnlPercent,
+            exitReason,
+            entry.Options.Mode.ToString(),
+            entry.Options.Risk.ToString(),
+            exitOptions.Mode.ToString(),
+            exitOptions.Risk.ToString(),
+            entry.Signal.Regime.ToString(),
+            entry.Signal.Strength,
+            string.Join(" | ", entry.Signal.Signals.Select(s => $"{s.Strategy}:{s.Direction} {s.Reason}")),
+            entry.Context,
+            SnapshotContext());
+
+        try
+        {
+            TradeCompleted?.Invoke(this, record);
+        }
+        catch (Exception ex)
+        {
+            // Learning must never break trading.
+            context.Log($"Learning record failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Last 50 bars are enough context to review a decision without huge files.</summary>
+    private IReadOnlyList<Bar> SnapshotContext()
+    {
+        lock (_sync)
+            return _bars.TakeLast(50).ToArray();
     }
 }

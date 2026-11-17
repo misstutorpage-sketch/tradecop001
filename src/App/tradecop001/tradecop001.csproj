@@ -18,6 +18,7 @@
     <ProjectReference Include="..\..\Strategies\Strategies.Adaptive\Strategies.Adaptive.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Keep config as a real file beside the single-file exe so users can edit it. -->
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 </Project>
